@@ -1,9 +1,5 @@
-#![allow(internal_features)]
-#![feature(core_intrinsics)]
-
 mod tables;
 
-use core::intrinsics::bswap;
 use crate::tables::*;
 
 pub fn encode(data: &[u8]) -> String {
@@ -16,7 +12,7 @@ pub fn encode(data: &[u8]) -> String {
             break;
         }
         let available_bytes = len - i;
-        let mut v = bswap(unsafe { (data_ptr.add(i) as *const u32).read() }) as usize;
+        let mut v = (unsafe { (data_ptr.add(i) as *const u32).read() }).swap_bytes() as usize;
         if available_bytes == 2 {
             v &= 0xffff0000;
             sb.push_str(TABLE[v >> 26 & 0x3f]);
@@ -82,13 +78,13 @@ pub fn decode(data: &str) -> Vec<u8> {
     let mut i = 0;
     while i < len - 4 {
         let value = unsafe { decode_chunk_no_padding(rpt, data_ptr, i) };
-        unsafe { (out_ptr.add(out_i) as *mut u32).write(bswap(value << 8)) }
+        unsafe { (out_ptr.add(out_i) as *mut u32).write((value << 8).swap_bytes()) }
         out_i += 3;
         i += 4;
     }
 
     let (lc, lc_len) = unsafe { decode_chunk(rt, data_ptr, len - 4) };
-    unsafe { (out_ptr.add(out_i) as *mut u32).write(bswap(lc << 8)) }
+    unsafe { (out_ptr.add(out_i) as *mut u32).write((lc << 8).swap_bytes()) }
     out_i += lc_len;
 
     unsafe {
