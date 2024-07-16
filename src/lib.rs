@@ -38,15 +38,9 @@ pub fn encode(data: &[u8]) -> String {
     sb
 }
 
-#[inline]
-unsafe fn decode_chunk_no_padding(rpt: *const u32, ptr: *const u8, offset: usize) -> u32 {
-    let dp = (ptr.add(offset) as *const u32).read() as usize;
-    rpt.add(dp & 0xffff).read() << 12 | rpt.add(dp >> 16 & 0xffff).read()
-}
-
-#[inline]
-unsafe fn decode_chunk(rt: *const u32, ptr: *const u8, offset: usize) -> (u32, usize) {
-    let c = (ptr.add(offset) as *const u32).read() as usize;
+#[inline(always)]
+unsafe fn decode_last_chunk(rt: *const u32, ptr: *const u32, offset: usize) -> (u32, usize) {
+    let c = ptr.add(offset).read() as usize;
     (
         rt.add(c >> 24 & 0xff).read()
             | rt.add(c >> 16 & 0xff).read() << 6
@@ -62,35 +56,33 @@ unsafe fn decode_chunk(rt: *const u32, ptr: *const u8, offset: usize) -> (u32, u
     )
 }
 
-pub fn decode(data: &str) -> Vec<u8> {
-    let len = data.len();
-    let data_ptr = data.as_ptr();
-    let mut out = Vec::with_capacity(len);
-    let out_ptr: *const u8 = out.as_ptr();
-    let mut out_i = 0;
+/// Decodes Base64, uses `data` as a buffer for in-place decoding.
+///
+/// Returns a slice of `data` with decoded data.
+pub fn decode(data: &mut [u8]) -> &[u8] {
+    let data_ptr = data.as_ptr() as *const u32;
+    let out_ptr = data.as_mut_ptr() as *mut u8;
     let rt = REVERSE_TABLE.as_ptr();
     let rpt = REVERSE_PAIR_TABLE.as_ptr();
 
-    if len < 4 {
-        return vec![];
+    if data.len() < 4 {
+        return &[];
     }
 
-    let mut i = 0;
-    while i < len - 4 {
-        let value = unsafe { decode_chunk_no_padding(rpt, data_ptr, i) };
-        unsafe { (out_ptr.add(out_i) as *mut u32).write((value << 8).swap_bytes()) }
-        out_i += 3;
-        i += 4;
+    let max_size = (data.len() - 4) >> 2;
+    let last_chunk_pos = max_size * 3;
+    for (i, out_i) in (0..max_size).zip((0..last_chunk_pos).step_by(3)) {
+        let dp = unsafe { *data_ptr.add(i) };
+        let value = unsafe {
+            *rpt.add((dp & 0xffff) as usize) << 12 | *rpt.add((dp >> 16 & 0xffff) as usize)
+        };
+        unsafe { *(out_ptr.add(out_i) as *mut u32) = (value << 8).swap_bytes() }
     }
 
-    let (lc, lc_len) = unsafe { decode_chunk(rt, data_ptr, len - 4) };
-    unsafe { (out_ptr.add(out_i) as *mut u32).write((lc << 8).swap_bytes()) }
-    out_i += lc_len;
+    let (last_chunk, last_chunk_len) = unsafe { decode_last_chunk(rt, data_ptr, max_size) };
+    unsafe { *(out_ptr.add(last_chunk_pos) as *mut u32) = (last_chunk << 8).swap_bytes() }
 
-    unsafe {
-        out.set_len(out_i);
-    }
-    out
+    &data[..last_chunk_pos + last_chunk_len]
 }
 
 #[cfg(test)]
@@ -112,23 +104,48 @@ mod tests {
     }
 
     #[test]
+    fn encode_chunk_long() {
+        assert_eq!(
+            faster_base64::encode(b"HelHelHelHelHelHelHelHel"),
+            "SGVsSGVsSGVsSGVsSGVsSGVsSGVsSGVs"
+        );
+    }
+
+    #[test]
     fn encode_chunk_remain_1() {
         assert_eq!(faster_base64::encode(b"Hell"), "SGVsbA==");
     }
 
     #[test]
     fn decode() {
-        assert_eq!(faster_base64::decode("SGVsbG8="), b"Hello".to_vec());
+        assert_eq!(
+            faster_base64::decode(&mut "SGVsbG8=".as_bytes().to_vec()),
+            b"Hello"
+        );
     }
 
     #[test]
     fn decode_chunk_equal() {
-        assert_eq!(faster_base64::decode("SGVs"), b"Hel".to_vec());
+        assert_eq!(
+            faster_base64::decode(&mut "SGVs".as_bytes().to_vec()),
+            b"Hel"
+        );
+    }
+
+    #[test]
+    fn decode_chunk_long() {
+        assert_eq!(
+            faster_base64::decode(&mut "SGVsSGVsSGVsSGVsSGVsSGVsSGVsSGVs".as_bytes().to_vec()),
+            b"HelHelHelHelHelHelHelHel"
+        );
     }
 
     #[test]
     fn decode_chunk_remain_1() {
-        assert_eq!(faster_base64::decode("SGVsbA=="), b"Hell".to_vec());
+        assert_eq!(
+            faster_base64::decode(&mut "SGVsbA==".as_bytes().to_vec()),
+            b"Hell"
+        );
     }
 
     #[test]
@@ -140,11 +157,12 @@ mod tests {
         f.read(&mut buf).unwrap();
         println!("Start encode benchmark");
         let mut start = Instant::now();
-        let data = faster_base64::encode(&buf);
+        let data2 = faster_base64::encode(&buf);
+        let mut data = data2.as_bytes().to_vec();
         println!("Encoded {} MB in {:?}", MB_SIZE, start.elapsed());
         println!("Start decode benchmark");
         start = Instant::now();
-        faster_base64::decode(&data);
+        faster_base64::decode(&mut data);
         println!("Decoded {} MB in {:?}", MB_SIZE, start.elapsed());
     }
 }
