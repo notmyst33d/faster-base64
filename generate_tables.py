@@ -30,3 +30,6 @@ for i in range(32768):
     print(f"{pairs_indexes.get(i, 0)},", end="")
 
 print("];")
+
+print("pub const RT_PTR: *const u32 = REVERSE_TABLE.as_ptr();")
+print("pub const RPT_PTR: *const u32 = REVERSE_PAIR_TABLE.as_ptr();")

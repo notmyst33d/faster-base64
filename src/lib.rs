@@ -60,10 +60,8 @@ unsafe fn decode_last_chunk(rt: *const u32, ptr: *const u32, offset: usize) -> (
 ///
 /// Returns a slice of `data` with decoded data.
 pub fn decode(data: &mut [u8]) -> &[u8] {
-    let data_ptr = data.as_ptr() as *const u32;
+    let data_ptr = data.as_ptr() as *const u16;
     let out_ptr = data.as_mut_ptr() as *mut u8;
-    let rt = REVERSE_TABLE.as_ptr();
-    let rpt = REVERSE_PAIR_TABLE.as_ptr();
 
     if data.len() < 4 {
         return &[];
@@ -71,16 +69,17 @@ pub fn decode(data: &mut [u8]) -> &[u8] {
 
     let max_size = (data.len() - 4) >> 2;
     let last_chunk_pos = max_size * 3;
-    for (i, out_i) in (0..max_size).zip((0..last_chunk_pos).step_by(3)) {
-        let dp = unsafe { *data_ptr.add(i) };
+    let mut out_i = 0;
+    for i in (0..max_size << 1).step_by(2) {
         let value = unsafe {
-            *rpt.add((dp & 0xffff) as usize) << 12 | *rpt.add((dp >> 16 & 0xffff) as usize)
+            *RPT_PTR.add(*data_ptr.add(i) as usize) << 12 | *RPT_PTR.add(*data_ptr.add(i + 1) as usize)
         };
-        unsafe { *(out_ptr.add(out_i) as *mut u32) = (value << 8).swap_bytes() }
+        unsafe { (out_ptr.add(out_i) as *mut u32).write_unaligned((value << 8).swap_bytes()) }
+        out_i += 3;
     }
 
-    let (last_chunk, last_chunk_len) = unsafe { decode_last_chunk(rt, data_ptr, max_size) };
-    unsafe { *(out_ptr.add(last_chunk_pos) as *mut u32) = (last_chunk << 8).swap_bytes() }
+    let (last_chunk, last_chunk_len) = unsafe { decode_last_chunk(RT_PTR, data_ptr as *const u32, max_size) };
+    unsafe { (out_ptr.add(last_chunk_pos) as *mut u32).write_unaligned((last_chunk << 8).swap_bytes()) }
 
     &data[..last_chunk_pos + last_chunk_len]
 }
@@ -151,18 +150,27 @@ mod tests {
     #[test]
     fn benchmark() {
         const MB_SIZE: usize = 1024;
-        let mut buf = vec![0u8; MB_SIZE * 1024 * 1024];
-        println!("Read test data");
+        let buf_size = MB_SIZE * 1024 * 1024;
+
+        println!("Allocating buffer...");
+        let mut buf = vec![0u8; buf_size];
+
+        println!("Reading {} MB of test data from /dev/urandom...", MB_SIZE);
         let mut f = File::open("/dev/urandom").unwrap();
-        f.read(&mut buf).unwrap();
-        println!("Start encode benchmark");
-        let mut start = Instant::now();
-        let data2 = faster_base64::encode(&buf);
-        let mut data = data2.as_bytes().to_vec();
-        println!("Encoded {} MB in {:?}", MB_SIZE, start.elapsed());
-        println!("Start decode benchmark");
-        start = Instant::now();
-        faster_base64::decode(&mut data);
-        println!("Decoded {} MB in {:?}", MB_SIZE, start.elapsed());
+        f.read_exact(&mut buf).unwrap();
+
+        println!("Starting encode benchmark...");
+        let start = Instant::now();
+        let encoded = faster_base64::encode(&buf);
+        let encode_duration = start.elapsed();
+        println!("Encoded {} MB in {:?}", MB_SIZE, encode_duration);
+        println!("Starting decode benchmark...");
+        let mut bind = encoded.as_bytes().to_vec();
+        let start = Instant::now();
+        let decoded = faster_base64::decode(&mut bind);
+        let decode_duration = start.elapsed();
+        println!("Decoded {} MB in {:?}", MB_SIZE, decode_duration);
+
+        assert_eq!(decoded, buf);
     }
 }
