@@ -1,6 +1,8 @@
 import string
 import itertools
 
+print("#![allow(dead_code)]")
+
 print("""pub const TABLE: [&'static str; 64] = [
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
     "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
@@ -20,16 +22,16 @@ print("""pub const REVERSE_TABLE: [u32; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];""")
 
-print("pub const REVERSE_PAIR_TABLE: [u32; 32768] = [", end="")
+print("pub const REVERSE_PAIR_TABLE: [u16; 65535] = [", end="")
 
 indexes = {k: v for k, v in zip(string.ascii_uppercase + string.ascii_lowercase + string.digits + "+" + "/", range(64))}
 pairs = list(itertools.product(string.ascii_uppercase + string.ascii_lowercase + string.digits + "+" + "/", repeat=2))
 pairs_indexes = {ord(pair[0]) | ord(pair[1]) << 8: indexes[pair[0]] << 6 | indexes[pair[1]] for pair in pairs}
 
-for i in range(32768):
+for i in range(65535):
     print(f"{pairs_indexes.get(i, 0)},", end="")
 
 print("];")
 
 print("pub const RT_PTR: *const u32 = REVERSE_TABLE.as_ptr();")
-print("pub const RPT_PTR: *const u32 = REVERSE_PAIR_TABLE.as_ptr();")
+print("pub const RPT_PTR: *const u16 = REVERSE_PAIR_TABLE.as_ptr();")

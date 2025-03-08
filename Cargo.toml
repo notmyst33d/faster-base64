@@ -9,3 +9,18 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+base64 = "0.22.1"
+divan = "0.1.17"
+
+[build-dependencies]
+cmake = "0.1.54"
+
+[[bench]]
+name = "decode_fb64"
+harness = false
+
+[[bench]]
+name = "decode_stdb64"
+harness = false
