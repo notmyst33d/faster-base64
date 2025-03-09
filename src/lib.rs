@@ -3,52 +3,80 @@ mod tables;
 use crate::tables::*;
 
 pub fn encode(data: &[u8]) -> String {
-    let len = data.len();
-    let data_ptr = data.as_ptr();
-    let mut sb = String::with_capacity(len);
-    let mut i = 0;
-    loop {
-        if i > len - 1 {
-            break;
-        }
-        let available_bytes = len - i;
-        let mut v = (unsafe { (data_ptr.add(i) as *const u32).read() }).swap_bytes() as usize;
-        if available_bytes == 2 {
-            v &= 0xffff0000;
-            sb.push_str(TABLE[v >> 26 & 0x3f]);
-            sb.push_str(TABLE[v >> 20 & 0x3f]);
-            sb.push_str(TABLE[v >> 14 & 0x3f]);
-            sb.push_str("=");
-            break;
-        } else if available_bytes == 1 {
-            v &= 0xff000000;
-            sb.push_str(TABLE[v >> 26 & 0x3f]);
-            sb.push_str(TABLE[v >> 20 & 0x3f]);
-            sb.push_str("=");
-            sb.push_str("=");
-            break;
-        } else {
-            sb.push_str(TABLE[v >> 26 & 0x3f]);
-            sb.push_str(TABLE[v >> 20 & 0x3f]);
-            sb.push_str(TABLE[v >> 14 & 0x3f]);
-            sb.push_str(TABLE[v >> 8 & 0x3f]);
-            i += 3;
+    let remainder = data.len() % 3;
+    let out_size = if remainder == 0 {
+        (data.len() / 3) * 4
+    } else {
+        ((data.len() / 3) * 4) + 4
+    };
+
+    let mut out = vec![0u8; out_size];
+
+    if data.len() - 3 > 0 {
+        unsafe {
+            lcvec_enc(
+                data,
+                std::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u32, out.len() / 2),
+            );
         }
     }
-    sb
+
+    let last_chunk_pos = if remainder == 0 {
+        data.len() - 3
+    } else {
+        data.len() - remainder
+    };
+    let out_chunk_pos = out_size - 4;
+
+    if remainder == 1 {
+        let value = (data[last_chunk_pos] as usize) << 16;
+        out[out_chunk_pos] = TABLE[value >> 18 & 0x3f] as u8;
+        out[out_chunk_pos + 1] = TABLE[value >> 12 & 0x3f] as u8;
+        out[out_chunk_pos + 2] = b'=';
+        out[out_chunk_pos + 3] = b'=';
+    } else if remainder == 2 {
+        let value =
+            (data[last_chunk_pos] as usize) << 16 | (data[last_chunk_pos + 1] as usize) << 8;
+        out[out_chunk_pos] = TABLE[value >> 18 & 0x3f] as u8;
+        out[out_chunk_pos + 1] = TABLE[value >> 12 & 0x3f] as u8;
+        out[out_chunk_pos + 2] = TABLE[value >> 6 & 0x3f] as u8;
+        out[out_chunk_pos + 3] = b'=';
+    } else {
+        let value = (data[last_chunk_pos] as usize) << 16
+            | (data[last_chunk_pos + 1] as usize) << 8
+            | data[last_chunk_pos + 2] as usize;
+        out[out_chunk_pos] = TABLE[value >> 18 & 0x3f] as u8;
+        out[out_chunk_pos + 1] = TABLE[value >> 12 & 0x3f] as u8;
+        out[out_chunk_pos + 2] = TABLE[value >> 6 & 0x3f] as u8;
+        out[out_chunk_pos + 3] = TABLE[value & 0x3f] as u8;
+    }
+
+    unsafe { String::from_utf8_unchecked(out) }
 }
 
-/// Large chunk auto-vectorization
-pub unsafe fn lcvec(s: &[u16], out: &mut [u8]) {
-    let max_size = s.len() - 2;
-    let mut j = 0;
-    for i in (0..max_size).step_by(2) {
+/// Large Chunk Vectorization decoder
+pub unsafe fn lcvec_dec(s: &[u16], out: &mut [u8]) {
+    let i_max = s.len() - 2;
+    let j_max = (s.len() / 2) * 3;
+    for (i, j) in (0..i_max).step_by(2).zip((0..j_max).step_by(3)) {
         let value = (*REVERSE_PAIR_TABLE.get_unchecked(*s.get_unchecked(i) as usize) as u32) << 12
             | *REVERSE_PAIR_TABLE.get_unchecked(*s.get_unchecked(i + 1) as usize) as u32;
         *out.get_unchecked_mut(j) = (value >> 16) as u8;
         *out.get_unchecked_mut(j + 1) = (value >> 8) as u8;
         *out.get_unchecked_mut(j + 2) = value as u8;
-        j += 3;
+    }
+}
+
+/// Large Chunk Vectorization encoder
+pub unsafe fn lcvec_enc(s: &[u8], out: &mut [u32]) {
+    let i_max = s.len() - 3;
+    let j_max = s.len() / 3;
+    for (i, j) in (0..i_max).step_by(3).zip(0..j_max) {
+        let value = (*s.get_unchecked(i) as usize) << 16
+            | (*s.get_unchecked(i + 1) as usize) << 8
+            | *s.get_unchecked(i + 2) as usize;
+        *out.get_unchecked_mut(j) = *PAIR_TABLE.get_unchecked(value >> 12 & 0xfff) as u32
+            | (*PAIR_TABLE.get_unchecked(value & 0xfff) as u32) << 16;
     }
 }
 
@@ -62,7 +90,7 @@ pub fn decode(data: &mut [u8]) -> &[u8] {
 
     if data.len() - 4 > 0 {
         unsafe {
-            lcvec(
+            lcvec_dec(
                 std::slice::from_raw_parts(data.as_ptr() as *const u16, data.len() / 2),
                 data,
             );

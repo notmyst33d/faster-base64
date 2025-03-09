@@ -1,14 +1,12 @@
 import string
 import itertools
 
-print("#![allow(dead_code)]")
+print("pub const TABLE: [u8; 64] = [")
 
-print("""pub const TABLE: [&'static str; 64] = [
-    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
-    "T", "U", "V", "W", "X", "Y", "Z", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
-    "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "0", "1", "2", "3", "4",
-    "5", "6", "7", "8", "9", "+", "/",
-];""")
+for c in string.ascii_uppercase + string.ascii_lowercase + string.digits + "+" + "/":
+    print(f"{ord(c)},", end="")
+
+print("];")
 
 print("""pub const REVERSE_TABLE: [u32; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -33,5 +31,11 @@ for i in range(65535):
 
 print("];")
 
-print("pub const RT_PTR: *const u32 = REVERSE_TABLE.as_ptr();")
-print("pub const RPT_PTR: *const u16 = REVERSE_PAIR_TABLE.as_ptr();")
+pairs_indexes = {indexes[pair[0]] << 6 | indexes[pair[1]]: ord(pair[0]) | ord(pair[1]) << 8 for pair in pairs}
+
+print("pub const PAIR_TABLE: [u32; 4096] = [")
+
+for i in range(4096):
+    print(f"{pairs_indexes.get(i, 0)},", end="")
+
+print("];")

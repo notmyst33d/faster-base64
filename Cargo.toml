@@ -14,8 +14,13 @@ strip = true
 base64 = "0.22.1"
 divan = "0.1.17"
 
-[build-dependencies]
-cmake = "0.1.54"
+[[bench]]
+name = "encode_fb64"
+harness = false
+
+[[bench]]
+name = "encode_stdb64"
+harness = false
 
 [[bench]]
 name = "decode_fb64"
