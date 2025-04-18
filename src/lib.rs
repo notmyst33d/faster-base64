@@ -56,26 +56,22 @@ pub fn encode(data: &[u8]) -> String {
 
 /// Large Chunk Vectorization decoder
 pub unsafe fn lcvec_dec(s: &[u16], out: &mut [u8]) {
-    let i_max = s.len() - 2;
-    let j_max = (s.len() / 2) * 3;
-    for (i, j) in (0..i_max).step_by(2).zip((0..j_max).step_by(3)) {
-        let value = (*REVERSE_PAIR_TABLE.get_unchecked(*s.get_unchecked(i) as usize) as u32) << 12
-            | *REVERSE_PAIR_TABLE.get_unchecked(*s.get_unchecked(i + 1) as usize) as u32;
-        *out.get_unchecked_mut(j) = (value >> 16) as u8;
-        *out.get_unchecked_mut(j + 1) = (value >> 8) as u8;
-        *out.get_unchecked_mut(j + 2) = value as u8;
+    for (i, j) in s.chunks_exact(2).zip(out.chunks_exact_mut(3)) {
+        let value = (*REVERSE_PAIR_TABLE.get_unchecked(*i.get_unchecked(0) as usize) as u32) << 12
+            | *REVERSE_PAIR_TABLE.get_unchecked(*i.get_unchecked(1) as usize) as u32;
+        *j.get_unchecked_mut(0) = (value >> 16) as u8;
+        *j.get_unchecked_mut(1) = (value >> 8) as u8;
+        *j.get_unchecked_mut(2) = value as u8;
     }
 }
 
 /// Large Chunk Vectorization encoder
 pub unsafe fn lcvec_enc(s: &[u8], out: &mut [u32]) {
-    let i_max = s.len() - 3;
-    let j_max = s.len() / 3;
-    for (i, j) in (0..i_max).step_by(3).zip(0..j_max) {
-        let value = (*s.get_unchecked(i) as usize) << 16
-            | (*s.get_unchecked(i + 1) as usize) << 8
-            | *s.get_unchecked(i + 2) as usize;
-        *out.get_unchecked_mut(j) = *PAIR_TABLE.get_unchecked(value >> 12 & 0xfff) as u32
+    for (i, j) in s.chunks_exact(3).zip(out.iter_mut()) {
+        let value = (*i.get_unchecked(0) as usize) << 16
+            | (*i.get_unchecked(1) as usize) << 8
+            | *i.get_unchecked(2) as usize;
+        *j = *PAIR_TABLE.get_unchecked(value >> 12 & 0xfff) as u32
             | (*PAIR_TABLE.get_unchecked(value & 0xfff) as u32) << 16;
     }
 }

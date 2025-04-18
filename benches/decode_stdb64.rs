@@ -1,6 +1,6 @@
+use base64::prelude::*;
 use std::fs::File;
 use std::io::Read;
-use base64::prelude::*;
 
 fn main() {
     divan::main();
